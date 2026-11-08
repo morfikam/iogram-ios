@@ -1,0 +1,114 @@
+# Iogram для Android: собирает apk из официального исходника DrKLO/Telegram с правками (папка android/).
+# Ветка android, сборка iOS при этом не запускается.
+name: Build Iogram Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android
+  cancel-in-progress: true
+
+env:
+  TELEGRAM_COMMIT: 7be672ead283d022812d75c729d3a04dd4c2a2c6
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 5G
+      CCACHE_BASEDIR: ${{ github.workspace }}
+      CCACHE_COMPILERCHECK: content
+
+    steps:
+      - name: Освободить место
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/share/swift /opt/hostedtoolcache/CodeQL /usr/local/lib/android/sdk/ndk
+          df -h /
+
+      - name: Получить правки Iogram
+        uses: actions/checkout@v4
+        with:
+          path: iogram
+
+      - name: Получить исходник Telegram
+        uses: actions/checkout@v4
+        with:
+          repository: DrKLO/Telegram
+          ref: ${{ env.TELEGRAM_COMMIT }}
+          path: telegram
+          submodules: recursive
+          fetch-depth: 1
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Поставить инструменты Android
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ccache
+
+      - name: Восстановить кэш C++
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: android-ccache-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: android-ccache-
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Применить правки Iogram
+        env:
+          IOGRAM_API_ID: ${{ secrets.IOGRAM_API_ID }}
+          IOGRAM_API_HASH: ${{ secrets.IOGRAM_API_HASH }}
+          IOGRAM_CCACHE: /usr/bin/ccache
+        run: python3 iogram/android/apply.py telegram
+
+      - name: Собрать
+        working-directory: telegram
+        run: |
+          ccache -z
+          bash ./gradlew :TMessagesProj_AppStandalone:assembleAfatStandalone --stacktrace
+          ccache -s
+
+      - name: Сохранить кэш C++
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: android-ccache-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # Внутри apk — ключи API, а артефакты открытого репозитория может скачать любой,
+      # поэтому файл шифруется паролем из Secrets (расшифровка — iogram/decrypt.mjs)
+      - name: Зашифровать apk
+        env:
+          IOGRAM_ARTIFACT_KEY: ${{ secrets.IOGRAM_ARTIFACT_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$IOGRAM_ARTIFACT_KEY"
+          mkdir -p out
+          APK=$(find telegram/TMessagesProj_AppStandalone/build/outputs/apk -name '*.apk' | head -n 1)
+          echo "Найден: $APK"
+          ls -la "$APK"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt \
+            -pass env:IOGRAM_ARTIFACT_KEY -in "$APK" -out out/Iogram-android.apk.enc
+
+      - name: Выложить зашифрованный apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: Iogram-android-apk
+          path: out/Iogram-android.apk.enc
+          retention-days: 14
+          compression-level: 0
