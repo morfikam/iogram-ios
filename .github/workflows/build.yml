@@ -57,6 +57,15 @@ jobs:
           rm -rf /Users/Shared/telegram-ios
           mv "$GITHUB_WORKSPACE/telegram-ios" /Users/Shared/telegram-ios
 
+      # Кэш Bazel между сборками: пересобирается только изменённое (лимит кэша GitHub — 10 ГБ на репозиторий)
+      - name: Восстановить кэш сборки
+        uses: actions/cache@v4
+        with:
+          path: /Users/Shared/bazel-cache
+          key: bazel-${{ env.TELEGRAM_TAG }}-${{ github.run_id }}
+          restore-keys: |
+            bazel-${{ env.TELEGRAM_TAG }}-
+
       - name: Применить правки Iogram
         env:
           IOGRAM_API_ID: ${{ secrets.IOGRAM_API_ID }}
@@ -72,6 +81,7 @@ jobs:
           python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
           python3 -u build-system/Make/Make.py \
             --bazelUserRoot=/private/var/tmp/_bazel_iogram \
+            --cacheDir=/Users/Shared/bazel-cache \
             build \
             --configurationPath=build-system/iogram-configuration.json \
             --codesigningInformationPath=build-system/fake-codesigning \
