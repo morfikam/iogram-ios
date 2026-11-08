@@ -1,0 +1,97 @@
+# Iogram для iPhone: собирает .ipa из официального исходника Telegram-iOS с правками Iogram (папка iogram/).
+# Mac не нужен — сборка идёт на Mac-сервере GitHub (бесплатно для публичных репозиториев).
+# Результат — артефакт «Iogram-ipa» в запуске; ставится на iPhone через Sideloadly (он же подписывает).
+name: Build Iogram IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build
+  cancel-in-progress: true
+
+env:
+  # Стабильная версия Telegram-iOS; при обновлении проверить Xcode в versions.json
+  TELEGRAM_TAG: release-13.2
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 360
+
+    steps:
+      - name: Получить правки Iogram
+        uses: actions/checkout@v4
+        with:
+          path: iogram-ios
+
+      - name: Получить исходник Telegram-iOS
+        uses: actions/checkout@v4
+        with:
+          repository: TelegramMessenger/Telegram-iOS
+          ref: ${{ env.TELEGRAM_TAG }}
+          path: telegram-ios
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Выбрать Xcode
+        run: |
+          set -euo pipefail
+          XCODE_VERSION=$(python3 -c 'import json; print(json.load(open("telegram-ios/versions.json"))["xcode"])')
+          echo "Нужен Xcode $XCODE_VERSION"
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          xcodebuild -version
+          df -h /
+
+      - name: Перенести исходник в постоянную папку
+        # Пути к исходникам попадают в приложение, поэтому папка всегда одна и та же
+        run: |
+          set -euo pipefail
+          sudo mkdir -p /Users/Shared
+          sudo chown "$(whoami)" /Users/Shared
+          rm -rf /Users/Shared/telegram-ios
+          mv "$GITHUB_WORKSPACE/telegram-ios" /Users/Shared/telegram-ios
+
+      - name: Применить правки Iogram
+        env:
+          IOGRAM_API_ID: ${{ secrets.IOGRAM_API_ID }}
+          IOGRAM_API_HASH: ${{ secrets.IOGRAM_API_HASH }}
+        run: python3 iogram-ios/iogram/apply.py /Users/Shared/telegram-ios
+
+      - name: Собрать
+        run: |
+          set -euo pipefail
+          cd /Users/Shared/telegram-ios
+          BUILD_NUMBER=$(( $(cat build_number_offset) + 100000 + ${{ github.run_number }} ))
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          python3 build-system/Make/ImportCertificates.py --path build-system/fake-codesigning/certs
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot=/private/var/tmp/_bazel_iogram \
+            build \
+            --configurationPath=build-system/iogram-configuration.json \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+
+      - name: Забрать .ipa
+        run: |
+          set -euo pipefail
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          for f in /Users/Shared/telegram-ios/bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
+            cp "$f" "$GITHUB_WORKSPACE/out/Iogram.ipa"
+          done
+          ls -la "$GITHUB_WORKSPACE/out"
+          test -s "$GITHUB_WORKSPACE/out/Iogram.ipa"
+
+      - name: Выложить .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: Iogram-ipa
+          path: out/Iogram.ipa
+          retention-days: 30
+          compression-level: 0
