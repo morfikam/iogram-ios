@@ -82,9 +82,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$GITHUB_WORKSPACE/out"
-          for f in /Users/Shared/telegram-ios/bazel-out/applebin_ios-ios_arm*-opt-ST-*/bin/Telegram/Telegram.ipa; do
-            cp "$f" "$GITHUB_WORKSPACE/out/Iogram.ipa"
-          done
+          # Bazel пишет «Target //Telegram:Telegram up-to-date: bazel-bin/Telegram/Telegram.ipa»
+          IPA=$(find -L /Users/Shared/telegram-ios/bazel-bin/Telegram -maxdepth 1 -name Telegram.ipa | head -n 1)
+          if [ -z "$IPA" ]; then
+            IPA=$(find /Users/Shared/telegram-ios/bazel-out -path '*/bin/Telegram/Telegram.ipa' | head -n 1)
+          fi
+          echo "Найден: $IPA"
+          cp "$IPA" "$GITHUB_WORKSPACE/out/Iogram.ipa"
           ls -la "$GITHUB_WORKSPACE/out"
           test -s "$GITHUB_WORKSPACE/out/Iogram.ipa"
 
