@@ -20,7 +20,7 @@ plutil -insert CFBundleShortVersionString -string 1.0 "$KIT/Info.plist"
 plutil -insert CFBundleVersion -string 1 "$KIT/Info.plist"
 plutil -convert binary1 "$KIT/Info.plist"
 
-"${CC[@]}" -fobjc-arc -framework UIKit -framework Foundation -framework Security \
+"${CC[@]}" -fobjc-arc -framework UIKit -framework Foundation -framework CoreGraphics -framework Security \
   -Wl,-rpath,@executable_path/Frameworks -o "$APP/IogramTest" main.m
 
 cp Info.plist "$APP/Info.plist"
