@@ -3,11 +3,15 @@
 # Запуск: python3 iogram/apply.py <папка исходника Telegram-iOS>
 # Ключи API берутся из переменных окружения IOGRAM_API_ID и IOGRAM_API_HASH (на GitHub — из Secrets).
 # Скрипт можно запускать повторно: уже сделанные правки он узнаёт и не ломает.
+import datetime
 import json
 import os
+import plistlib
 import re
 import shutil
+import subprocess
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 APP_NAME = 'Iogram'
@@ -86,6 +90,43 @@ def patch_icon(source):
     print('Iogram: значок заменён')
 
 
+def refresh_fake_profiles(source):
+    # У фейковых профилей подписи в исходнике бывает истёкший срок — тогда Bazel отказывается собирать.
+    # Профиль — подписанный CMS plist: достаём plist (`security cms -D`), продлеваем даты и подписываем заново
+    # одноразовым сертификатом (подпись самого профиля никто не проверяет; приложение подписывает Sideloadly)
+    profiles_dir = os.path.join(source, 'build-system', 'fake-codesigning', 'profiles')
+    if not shutil.which('security'):
+        print('Iogram: не macOS — профили не продлеваются')
+        return
+    work = tempfile.mkdtemp()
+    key = os.path.join(work, 'key.pem')
+    cert = os.path.join(work, 'cert.pem')
+    subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=Iogram Fake Profiles',
+                    '-days', '3650', '-keyout', key, '-out', cert], check=True, capture_output=True)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0, tzinfo=None)
+    count = 0
+    for name in sorted(os.listdir(profiles_dir)):
+        if not name.endswith('.mobileprovision'):
+            continue
+        path = os.path.join(profiles_dir, name)
+        decoded = subprocess.run(['security', 'cms', '-D', '-i', path], check=True, capture_output=True).stdout
+        profile = plistlib.loads(decoded)
+        profile['CreationDate'] = now - datetime.timedelta(days=1)
+        profile['ExpirationDate'] = now + datetime.timedelta(days=365)
+        plist_path = os.path.join(work, name + '.plist')
+        with open(plist_path, 'wb') as f:
+            plistlib.dump(profile, f)
+        subprocess.run(['openssl', 'cms', '-sign', '-binary', '-nodetach', '-outform', 'DER', '-in', plist_path,
+                        '-signer', cert, '-inkey', key, '-out', path], check=True, capture_output=True)
+        check = plistlib.loads(subprocess.run(['security', 'cms', '-D', '-i', path], check=True,
+                                              capture_output=True).stdout)
+        if check['ExpirationDate'] != profile['ExpirationDate']:
+            fail('профиль {} не продлился'.format(name))
+        count += 1
+    print('Iogram: фейковые профили продлены до {} ({} шт.)'.format(
+        (now + datetime.timedelta(days=365)).date(), count))
+
+
 def main():
     if len(sys.argv) != 2:
         fail('укажите папку исходника Telegram-iOS')
@@ -95,6 +136,7 @@ def main():
     write_configuration(source)
     patch_app_name(source)
     patch_icon(source)
+    refresh_fake_profiles(source)
 
 
 if __name__ == '__main__':
