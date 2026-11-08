@@ -20,6 +20,23 @@ BUNDLE_ID = 'com.iogram.ios'
 OFFICIAL_BUNDLE_ID = 'ph.telegra.Telegraph'
 
 TELEGRAM_CORE = os.path.join('submodules', 'TelegramCore', 'Sources')
+TELEGRAM_UI = os.path.join('submodules', 'TelegramUI', 'Sources')
+
+# Вставки в TelegramUI (тот же формат, что CORE_PATCHES)
+UI_PATCHES = [
+    # Подпись сторонним сертификатом (Feather, ESign, бесплатный Apple ID) обычно не даёт общей папки App Group,
+    # и Telegram без неё останавливается на чёрном экране («Error 2»). Тогда данные хранятся в папке самого приложения
+    # (расширения — виджеты, «Поделиться», уведомления — их не видят, само приложение работает)
+    ('AppDelegate.swift',
+     '        let maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)\n',
+     '        var maybeAppGroupUrl = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupName)\n'
+     '        if maybeAppGroupUrl == nil, let supportUrl = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {\n'
+     '            let fallbackUrl = supportUrl.appendingPathComponent("IogramGroup", isDirectory: true)\n'
+     '            let _ = try? FileManager.default.createDirectory(at: fallbackUrl, withIntermediateDirectories: true, attributes: nil)\n'
+     '            maybeAppGroupUrl = fallbackUrl\n'
+     '        }\n',
+     1),
+]
 
 # Вставки в TelegramCore: (файл, что найти, на что заменить, сколько раз должно найтись).
 # Ищется по точному тексту исходника выбранной версии; если Telegram изменил код — сборка остановится с понятной ошибкой
@@ -174,8 +191,15 @@ def patch_core(source):
     target_dir = os.path.join(core, 'Iogram')
     os.makedirs(target_dir, exist_ok=True)
     shutil.copyfile(os.path.join(HERE, 'swift', 'IogramSettings.swift'), os.path.join(target_dir, 'IogramSettings.swift'))
-    for relative, old, new, expected in CORE_PATCHES:
-        path = os.path.join(core, relative)
+    apply_patches(core, CORE_PATCHES)
+    print('Iogram: функции в TelegramCore ({} вставок)'.format(len(CORE_PATCHES)))
+    apply_patches(os.path.join(source, TELEGRAM_UI), UI_PATCHES)
+    print('Iogram: правки TelegramUI ({} вставок)'.format(len(UI_PATCHES)))
+
+
+def apply_patches(base, patches):
+    for relative, old, new, expected in patches:
+        path = os.path.join(base, relative)
         text = read(path).replace('\r\n', '\n')
         if new in text:
             continue
@@ -183,7 +207,6 @@ def patch_core(source):
         if found != expected:
             fail('{}: ожидалось {} совпад., найдено {} — исходник Telegram изменился'.format(relative, expected, found))
         write(path, text.replace(old, new))
-    print('Iogram: функции в TelegramCore ({} вставок)'.format(len(CORE_PATCHES)))
 
 
 def refresh_fake_profiles(source):
