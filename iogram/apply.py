@@ -34,7 +34,44 @@ UI_PATCHES = [
      '            let fallbackUrl = supportUrl.appendingPathComponent("IogramGroup", isDirectory: true)\n'
      '            let _ = try? FileManager.default.createDirectory(at: fallbackUrl, withIntermediateDirectories: true, attributes: nil)\n'
      '            maybeAppGroupUrl = fallbackUrl\n'
+     '            IogramDiag.mark("нет App Group — данные в \\(fallbackUrl.path)")\n'
      '        }\n',
+     1),
+    # Диагностика запуска (IogramDiag): отметки этапов уходят на сервер IOGRAM
+    ('AppDelegate.swift',
+     '        CrashReportCollector.shared.start()\n',
+     '        CrashReportCollector.shared.start()\n'
+     '        IogramDiag.start()\n',
+     1),
+    ('AppDelegate.swift',
+     '        let deviceSpecificEncryptionParameters = BuildConfig.deviceSpecificEncryptionParameters(',
+     '        IogramDiag.mark("ключи шифрования базы…")\n'
+     '        let deviceSpecificEncryptionParameters = BuildConfig.deviceSpecificEncryptionParameters(',
+     1),
+    ('AppDelegate.swift',
+     '        TempBox.initializeShared(',
+     '        IogramDiag.mark("ключи шифрования готовы")\n'
+     '        TempBox.initializeShared(',
+     1),
+    ('AppDelegate.swift',
+     '        if !writeAbilityTestSuccess {\n',
+     '        IogramDiag.mark("проверка записи: \\(writeAbilityTestSuccess)")\n'
+     '        if !writeAbilityTestSuccess {\n',
+     1),
+    ('AppDelegate.swift',
+     '        let accountManager: AccountManager<TelegramAccountManagerTypes> = setupAccountManager(',
+     '        IogramDiag.mark("база аккаунтов…")\n'
+     '        let accountManager: AccountManager<TelegramAccountManagerTypes> = setupAccountManager(',
+     1),
+    ('AppDelegate.swift',
+     '            let sharedContext = SharedAccountContextImpl(',
+     '            IogramDiag.mark("создаю основной контекст")\n'
+     '            let sharedContext = SharedAccountContextImpl(',
+     1),
+    ('AppDelegate.swift',
+     '        self.sharedContextPromise.set(sharedContextSignal',
+     '        IogramDiag.mark("didFinishLaunching дошёл до конца")\n'
+     '        self.sharedContextPromise.set(sharedContextSignal',
      1),
 ]
 
@@ -49,6 +86,23 @@ PASSCODE_PATCHES = [
      '        if !(accessGroup.hasPrefix("group.") && FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: accessGroup) == nil) {\n'
      '            query[kSecAttrAccessGroup as String] = accessGroup\n'
      '        }\n',
+     1),
+    # Диагностика: подготовка и проверка паскода базы аккаунтов (если они падают, запуск повторяет их бесконечно)
+    ('AccountManagerIntegration.swift',
+     '                let _ = try PasscodeEnvironment.shared.sharedAccessGroup()\n',
+     '                IogramDiag.mark("паскод: подготовка")\n'
+     '                let _ = try PasscodeEnvironment.shared.sharedAccessGroup()\n',
+     1),
+    ('AccountManagerIntegration.swift',
+     '                return try resolveAccessChallenge(current, allowMigration: allowMigration)\n',
+     '                do {\n'
+     '                    let result = try resolveAccessChallenge(current, allowMigration: allowMigration)\n'
+     '                    IogramDiag.mark("паскод: проверка прошла")\n'
+     '                    return result\n'
+     '                } catch {\n'
+     '                    IogramDiag.mark("паскод: ОШИБКА \\(error)")\n'
+     '                    throw error\n'
+     '                }\n',
      1),
 ]
 
@@ -204,7 +258,8 @@ def patch_core(source):
     core = os.path.join(source, TELEGRAM_CORE)
     target_dir = os.path.join(core, 'Iogram')
     os.makedirs(target_dir, exist_ok=True)
-    shutil.copyfile(os.path.join(HERE, 'swift', 'IogramSettings.swift'), os.path.join(target_dir, 'IogramSettings.swift'))
+    for name in ('IogramSettings.swift', 'IogramDiag.swift'):
+        shutil.copyfile(os.path.join(HERE, 'swift', name), os.path.join(target_dir, name))
     apply_patches(core, CORE_PATCHES)
     print('Iogram: функции в TelegramCore ({} вставок)'.format(len(CORE_PATCHES)))
     apply_patches(os.path.join(source, TELEGRAM_UI), UI_PATCHES)
