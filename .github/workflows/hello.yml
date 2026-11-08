@@ -1,0 +1,29 @@
+# Маленькое приложение для проверки подписи GBox (см. hello/main.m). Большую сборку Telegram не запускает.
+name: Build hello test IPA
+
+on:
+  push:
+    branches: [hello-test]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: xcode-27
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.1.app/Contents/Developer
+          xcodebuild -version
+          bash hello/build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: IogramTest-ipa
+          path: hello/build/IogramTest.ipa
+          if-no-files-found: error
