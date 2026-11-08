@@ -88,10 +88,23 @@ jobs:
           ls -la "$GITHUB_WORKSPACE/out"
           test -s "$GITHUB_WORKSPACE/out/Iogram.ipa"
 
-      - name: Выложить .ipa
+      # Внутри .ipa — ключи API, а артефакты открытого репозитория может скачать любой,
+      # поэтому файл шифруется паролем из Secrets (расшифровка — iogram/decrypt.mjs)
+      - name: Зашифровать .ipa
+        env:
+          IOGRAM_ARTIFACT_KEY: ${{ secrets.IOGRAM_ARTIFACT_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$IOGRAM_ARTIFACT_KEY"
+          openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -md sha256 -salt \
+            -pass env:IOGRAM_ARTIFACT_KEY \
+            -in "$GITHUB_WORKSPACE/out/Iogram.ipa" -out "$GITHUB_WORKSPACE/out/Iogram.ipa.enc"
+          rm "$GITHUB_WORKSPACE/out/Iogram.ipa"
+
+      - name: Выложить зашифрованный .ipa
         uses: actions/upload-artifact@v4
         with:
           name: Iogram-ipa
-          path: out/Iogram.ipa
-          retention-days: 30
+          path: out/Iogram.ipa.enc
+          retention-days: 14
           compression-level: 0

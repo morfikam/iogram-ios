@@ -10,9 +10,11 @@ GitHub сам скачивает исходник Telegram-iOS нужной ве
 ## Сборка
 
 1. В настройках репозитория → Secrets and variables → Actions задать `IOGRAM_API_ID` и `IOGRAM_API_HASH`
-   (ключи с [my.telegram.org/apps](https://my.telegram.org/apps)).
+   (ключи с [my.telegram.org/apps](https://my.telegram.org/apps)) и `IOGRAM_ARTIFACT_KEY` — длинный случайный пароль.
 2. Actions → **Build Iogram IPA** → Run workflow (или любой push в `main`). Сборка идёт 1–3 часа.
-3. Скачать артефакт **Iogram-ipa** из запуска.
+3. Скачать артефакт **Iogram-ipa** из запуска — внутри `Iogram.ipa.enc`, зашифрованный этим паролем
+   (в приложении ваши ключи API, а артефакты открытого репозитория доступны всем).
+   Расшифровать: `node iogram/decrypt.mjs Iogram.ipa.enc Iogram.ipa <файл с паролем>`.
 
 ## Установка на iPhone
 
