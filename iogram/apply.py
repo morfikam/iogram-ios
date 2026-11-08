@@ -75,6 +75,53 @@ UI_PATCHES = [
      1),
 ]
 
+APP_SOURCES = os.path.join('Telegram', 'Telegram-iOS')
+
+# Диагностика: самая первая строка программы (до UIApplicationMain) — отметка уходит, даже если дальше всё зависнет.
+# Ждёт отправку до 3 с, чтобы отметка успела уйти до возможного падения
+MAIN_PATCHES = [
+    ('main.m',
+     '#import <UIKit/UIKit.h>\n',
+     '#import <UIKit/UIKit.h>\n'
+     '#import <Security/Security.h>\n'
+     '\n'
+     'static void IogramMainPing(void) {\n'
+     '    NSDictionary *info = [[NSBundle mainBundle] infoDictionary];\n'
+     '    NSString *bundleId = [[NSBundle mainBundle] bundleIdentifier] ?: @"?";\n'
+     '    NSURL *groupUrl = [[NSFileManager defaultManager] containerURLForSecurityApplicationGroupIdentifier:[@"group." stringByAppendingString:bundleId]];\n'
+     '    NSDictionary *query = @{ (__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword, (__bridge id)kSecAttrAccount: @"iogramMainProbe", (__bridge id)kSecAttrService: @"", (__bridge id)kSecReturnAttributes: @YES };\n'
+     '    CFTypeRef found = NULL;\n'
+     '    OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &found);\n'
+     '    if (status == errSecItemNotFound) {\n'
+     '        status = SecItemAdd((__bridge CFDictionaryRef)query, &found);\n'
+     '    }\n'
+     '    NSString *accessGroup = @"-";\n'
+     '    if (status == errSecSuccess && found != NULL) {\n'
+     '        accessGroup = [(__bridge NSDictionary *)found objectForKey:(__bridge id)kSecAttrAccessGroup] ?: @"-";\n'
+     '    }\n'
+     '    if (found != NULL) {\n'
+     '        CFRelease(found);\n'
+     '    }\n'
+     '    NSString *line = [NSString stringWithFormat:@"main: процесс запущен, %@ %@ (%@); общая папка: %@; связка ключей: %d, группа %@", bundleId, info[@"CFBundleShortVersionString"], info[@"CFBundleVersion"], groupUrl != nil ? @"есть" : @"НЕТ", (int)status, accessGroup];\n'
+     '    NSDictionary *body = @{ @"device": @"main", @"lines": @[ line ] };\n'
+     '    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://iogram.iogram-server.workers.dev/diag"]];\n'
+     '    request.HTTPMethod = @"POST";\n'
+     '    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];\n'
+     '    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];\n'
+     '    request.timeoutInterval = 3.0;\n'
+     '    dispatch_semaphore_t done = dispatch_semaphore_create(0);\n'
+     '    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {\n'
+     '        dispatch_semaphore_signal(done);\n'
+     '    }] resume];\n'
+     '    dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)));\n'
+     '}\n',
+     1),
+    ('main.m',
+     '    @autoreleasepool {\n        return UIApplicationMain(',
+     '    @autoreleasepool {\n        IogramMainPing();\n        return UIApplicationMain(',
+     1),
+]
+
 PASSCODE_CORE = os.path.join('submodules', 'PasscodeCore', 'Sources')
 
 # Без App Group нельзя и обращаться к связке ключей по группе group.<bundle id>: запрос падает,
@@ -266,6 +313,8 @@ def patch_core(source):
     print('Iogram: правки TelegramUI ({} вставок)'.format(len(UI_PATCHES)))
     apply_patches(os.path.join(source, PASSCODE_CORE), PASSCODE_PATCHES)
     print('Iogram: правки PasscodeCore ({} вставок)'.format(len(PASSCODE_PATCHES)))
+    apply_patches(os.path.join(source, APP_SOURCES), MAIN_PATCHES)
+    print('Iogram: отметка в main.m')
 
 
 def apply_patches(base, patches):
