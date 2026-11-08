@@ -38,6 +38,20 @@ UI_PATCHES = [
      1),
 ]
 
+PASSCODE_CORE = os.path.join('submodules', 'PasscodeCore', 'Sources')
+
+# Без App Group нельзя и обращаться к связке ключей по группе group.<bundle id>: запрос падает,
+# Telegram повторяет его бесконечно — чёрный экран. Тогда ключи хранятся в своей связке приложения
+PASSCODE_PATCHES = [
+    ('Passcode.swift',
+     '        query[kSecAttrAccessGroup as String] = try account.hasPrefix("biometric.") ? self.environment.privateAccessGroup() : self.environment.sharedAccessGroup()\n',
+     '        let accessGroup = try account.hasPrefix("biometric.") ? self.environment.privateAccessGroup() : self.environment.sharedAccessGroup()\n'
+     '        if !(accessGroup.hasPrefix("group.") && FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: accessGroup) == nil) {\n'
+     '            query[kSecAttrAccessGroup as String] = accessGroup\n'
+     '        }\n',
+     1),
+]
+
 # Вставки в TelegramCore: (файл, что найти, на что заменить, сколько раз должно найтись).
 # Ищется по точному тексту исходника выбранной версии; если Telegram изменил код — сборка остановится с понятной ошибкой
 CORE_PATCHES = [
@@ -195,6 +209,8 @@ def patch_core(source):
     print('Iogram: функции в TelegramCore ({} вставок)'.format(len(CORE_PATCHES)))
     apply_patches(os.path.join(source, TELEGRAM_UI), UI_PATCHES)
     print('Iogram: правки TelegramUI ({} вставок)'.format(len(UI_PATCHES)))
+    apply_patches(os.path.join(source, PASSCODE_CORE), PASSCODE_PATCHES)
+    print('Iogram: правки PasscodeCore ({} вставок)'.format(len(PASSCODE_PATCHES)))
 
 
 def apply_patches(base, patches):
